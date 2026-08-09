@@ -18,6 +18,7 @@
 #include "OS.h"
 
 #include <android-base/threads.h>
+#include <binder/Common.h>
 #include <cutils/trace.h>
 #include <utils/misc.h>
 
@@ -56,12 +57,29 @@ uint64_t get_trace_enabled_tags() {
 } // namespace os
 
 // Legacy trace symbol. To be removed once all of downstream rebuilds.
-void atrace_begin(uint64_t tag, const char* name) {
+//
+// arcfox: these two MUST be exported. libbinder builds with -fvisibility=hidden
+// (see BUILDING_LIBBINDER in Android.bp), so without an export macro these legacy
+// shims are compiled but invisible, and every prebuilt vendor blob still linked
+// against the old android::binder::atrace_begin fails to load:
+//
+//   CANNOT LINK EXECUTABLE "/vendor/bin/qms": cannot locate symbol
+//     "_ZN7android6binder12atrace_beginEmPKc" (@LIBBINDER)
+//
+// That took out qms, qcc-vendor, xtra-daemon and cnd (via libcne.so) -- four
+// services in permanent restart loops. The symbols the blobs want are exactly
+// these; AOSP moved the real implementation into binder::os:: and left these as
+// the compatibility shims, which is precisely the "downstream has not rebuilt"
+// case they were written for. LIBBINDER_INTERNAL_EXPORTED is the macro AOSP
+// provides for symbols that are exported but tracked for eventual removal, so it
+// is the right one here: when upstream deletes these shims this patch dies with
+// them.
+LIBBINDER_INTERNAL_EXPORTED void atrace_begin(uint64_t tag, const char* name) {
     os::trace_begin(tag, name);
 }
 
 // Legacy trace symbol. To be removed once all of downstream rebuilds.
-void atrace_end(uint64_t tag) {
+LIBBINDER_INTERNAL_EXPORTED void atrace_end(uint64_t tag) {
     os::trace_end(tag);
 }
 
