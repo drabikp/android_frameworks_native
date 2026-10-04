@@ -1020,6 +1020,21 @@ void SurfaceFlinger::init() FTL_FAKE_GUARD(kMainThreadContext) {
     // initializing the Scheduler after configureLocked, once decoupled from DisplayDevice.
     initScheduler(display);
 
+    // A hotplug that arrived after configureLocked() drained the pending events but before the
+    // Scheduler existed was queued with nobody to process it: onComposerHalHotplugEvent() only
+    // schedules a configure once mScheduler is set. The display then stays disconnected for the
+    // whole boot. Seen on a foldable whose second built-in panel is hotplugged a few ms after the
+    // primary. Checking under mHotplugMutex after mScheduler is set leaves no gap: an event queued
+    // before this point is seen here, and one queued after it schedules itself.
+    {
+        std::lock_guard<std::mutex> lock(mHotplugMutex);
+        if (!mPendingHotplugEvents.empty()) {
+            ALOGI("%zu hotplug event(s) arrived during init, scheduling configure",
+                  mPendingHotplugEvents.size());
+            mScheduler->scheduleConfigure();
+        }
+    }
+
     // Start listening after creating the Scheduler, since the listener calls into it.
     mDisplayModeController.setActiveModeListener(
             display::DisplayModeController::ActiveModeListener::make(
